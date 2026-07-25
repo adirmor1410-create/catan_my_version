@@ -3,6 +3,8 @@ package com.catan.app.ui
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import com.catan.app.R
+import com.catan.core.geometry.BoardGeometry
+import com.catan.core.geometry.Point
 import com.catan.core.model.Board
 import com.catan.core.model.DevCardType
 import com.catan.core.model.EdgeId
@@ -11,68 +13,28 @@ import com.catan.core.model.PlayerColor
 import com.catan.core.model.Resource
 import com.catan.core.model.TileType
 import com.catan.core.model.VertexId
-import com.catan.core.model.endpoints
-import kotlin.math.atan2
-import kotlin.math.sqrt
 
 /**
- * Turns board coordinates into screen positions.
+ * Screen positions for the board.
  *
- * [size] is the circumradius of a hex: the distance from its centre to a corner. For a pointy-top
- * hex that makes it `sqrt(3) * size` wide and `2 * size` tall.
+ * The arithmetic lives in `core` as [BoardGeometry] so it can be unit tested on the JVM; this is
+ * only the Compose-facing wrapper that turns its points into [Offset]s.
  */
-data class BoardLayout(val size: Float, val origin: Offset) {
+class BoardLayout(private val geometry: BoardGeometry) {
 
-    fun centerOf(hex: Hex): Offset = Offset(
-        origin.x + size * SQRT3 * (hex.q + hex.r / 2f),
-        origin.y + size * 1.5f * hex.r,
-    )
+    val size: Float get() = geometry.size
 
-    /** A corner sits at the average of the three hex centres that meet there. */
-    fun positionOf(vertex: VertexId): Offset {
-        var x = 0f
-        var y = 0f
-        for (hex in vertex.hexes) {
-            val c = centerOf(hex)
-            x += c.x
-            y += c.y
-        }
-        return Offset(x / 3f, y / 3f)
-    }
+    private fun Point.toOffset() = Offset(x, y)
 
-    fun midpointOf(edge: EdgeId): Offset {
-        val (a, b) = edge.endpoints()
-        val pa = positionOf(a)
-        val pb = positionOf(b)
-        return Offset((pa.x + pb.x) / 2f, (pa.y + pb.y) / 2f)
-    }
+    fun centerOf(hex: Hex): Offset = geometry.centerOf(hex).toOffset()
 
-    /** Rotation in degrees for a road drawn along [edge]. */
-    fun angleOf(edge: EdgeId): Float {
-        val (a, b) = edge.endpoints()
-        val pa = positionOf(a)
-        val pb = positionOf(b)
-        return Math.toDegrees(atan2((pb.y - pa.y).toDouble(), (pb.x - pa.x).toDouble())).toFloat()
-    }
+    fun positionOf(vertex: VertexId): Offset = geometry.positionOf(vertex).toOffset()
 
-    /** The direction pointing away from the board at [edge], for placing a harbour marker. */
-    fun outwardOf(edge: EdgeId, board: Board): Offset {
-        val mid = midpointOf(edge)
-        val land = edge.hexes.filter { board.tileAt(it) != null }
-        if (land.isEmpty()) return Offset(0f, -1f)
-        var x = 0f
-        var y = 0f
-        for (hex in land) {
-            val c = centerOf(hex)
-            x += c.x
-            y += c.y
-        }
-        val landCentre = Offset(x / land.size, y / land.size)
-        val dx = mid.x - landCentre.x
-        val dy = mid.y - landCentre.y
-        val length = sqrt(dx * dx + dy * dy).takeIf { it > 0.001f } ?: return Offset(0f, -1f)
-        return Offset(dx / length, dy / length)
-    }
+    fun midpointOf(edge: EdgeId): Offset = geometry.midpointOf(edge).toOffset()
+
+    fun angleOf(edge: EdgeId): Float = geometry.angleDegreesOf(edge)
+
+    fun outwardOf(edge: EdgeId, board: Board): Offset = geometry.outwardOf(edge, board).toOffset()
 
     fun nearestVertex(point: Offset, candidates: Collection<VertexId>): VertexId? =
         candidates.minByOrNull { (positionOf(it) - point).getDistanceSquared() }
@@ -87,22 +49,11 @@ data class BoardLayout(val size: Float, val origin: Offset) {
             ?.takeIf { (centerOf(it) - point).getDistance() <= size * 0.95f }
 
     companion object {
-        val SQRT3 = sqrt(3f)
+        /** How much larger than the hex a tile image must be drawn. See [BoardGeometry]. */
+        const val TILE_IMAGE_SCALE = BoardGeometry.TILE_IMAGE_SCALE
 
-        /**
-         * The tile art is a hex drawn inside a square canvas with transparent padding. The hex
-         * itself is 83.2% of the canvas height, so the image has to be drawn larger than the hex
-         * for neighbouring tiles to meet cleanly.
-         */
-        const val TILE_IMAGE_SCALE = 2f / 0.832f
-
-        /** Fits the whole 19-tile board, plus room for harbour markers, into [canvas]. */
-        fun fit(canvas: Size): BoardLayout {
-            // The board spans 5 hexes corner to corner: 4.33 * size horizontally from the centre
-            // and 4 * size vertically. The extra margin leaves room for the harbours.
-            val size = minOf(canvas.width / 9.9f, canvas.height / 9.2f)
-            return BoardLayout(size, Offset(canvas.width / 2f, canvas.height / 2f))
-        }
+        fun fit(canvas: Size): BoardLayout =
+            BoardLayout(BoardGeometry.fit(canvas.width, canvas.height))
     }
 }
 

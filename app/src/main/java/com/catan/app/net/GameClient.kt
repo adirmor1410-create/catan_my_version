@@ -153,8 +153,12 @@ class GameClient {
                 _view.value = null
             }
             is GameUpdate -> {
-                _view.value = message.view
-                _lobby.value = null
+                // Updates can arrive out of order after a reconnect; never go backwards.
+                val current = _view.value
+                if (current == null || message.view.state.version >= current.state.version) {
+                    _view.value = message.view
+                    _lobby.value = null
+                }
             }
             is ActionRejected -> _notice.value = message.reason
             is ErrorMessage -> _notice.value = message.message
