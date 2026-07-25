@@ -71,7 +71,8 @@ fun BoardView(
     val robberArt = ImageBitmap.imageResource(Art.ROBBER)
 
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
-    val colorOf: (com.catan.core.model.PlayerId) -> PlayerColor = { id ->
+    // Named to avoid shadowing the top-level colorOf(PlayerColor) in this package.
+    val colorFor: (com.catan.core.model.PlayerId) -> PlayerColor = { id ->
         view.state.players.first { it.id == id }.color
     }
 
@@ -121,7 +122,7 @@ fun BoardView(
         drawCentred(robberArt, layout.centerOf(board.robber), layout.size * ROBBER_SCALE)
 
         for ((edge, owner) in view.state.roads) {
-            val art = roadArt.getValue(colorOf(owner))
+            val art = roadArt.getValue(colorFor(owner))
             val mid = layout.midpointOf(edge)
             rotate(degrees = layout.angleOf(edge), pivot = mid) {
                 drawCentred(art, mid, layout.size * ROAD_IMAGE_SCALE)
@@ -129,7 +130,7 @@ fun BoardView(
         }
 
         for ((vertex, building) in view.state.buildings) {
-            val color = colorOf(building.owner)
+            val color = colorFor(building.owner)
             val position = layout.positionOf(vertex)
             if (building.type == BuildingType.CITY) {
                 drawCentred(cityArt.getValue(color), position, layout.size * CITY_SCALE)

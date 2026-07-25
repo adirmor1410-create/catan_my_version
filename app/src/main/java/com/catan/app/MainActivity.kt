@@ -18,6 +18,11 @@ import com.catan.app.ui.LobbyScreen
 /** Holds the connection across configuration changes so a rotation does not drop the game. */
 class CatanViewModel : ViewModel() {
     val client = GameClient()
+
+    override fun onCleared() {
+        super.onCleared()
+        client.leave()
+    }
 }
 
 class MainActivity : ComponentActivity() {
