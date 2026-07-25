@@ -120,5 +120,6 @@ object Art {
         DevCardType.YEAR_OF_PLENTY -> R.drawable.dev_year_of_plenty
     }
 
-    const val ROBBER = R.drawable.robber
+    // Not `const`: with non-transitive R classes the generated ids are not compile-time constants.
+    val ROBBER = R.drawable.robber
 }
