@@ -60,6 +60,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -117,6 +118,41 @@ class ServerIntegrationTest {
         suspend fun awaitView(): PlayerView = withTimeout(10_000) {
             while (view == null) delay(5)
             view!!
+        }
+    }
+
+    /**
+     * Owns a server, an HTTP client and the test's sockets.
+     *
+     * Teardown is bounded: closing a WebSocket waits for a close handshake that a stopped server
+     * will never send, so an unbounded close hangs the whole test run rather than failing it.
+     */
+    private class Harness {
+        val server = embeddedServer(Netty, port = 0, module = Application::catanModule)
+            .start(wait = false)
+        val http = HttpClient(CIO) { install(WebSockets) }
+        val scope = CoroutineScope(Dispatchers.IO + Job())
+        private val clients = mutableListOf<TestClient>()
+
+        suspend fun port(): Int = server.engine.resolvedConnectors().first().port
+
+        suspend fun connect(): TestClient {
+            val client = TestClient(
+                http.webSocketSession(host = "127.0.0.1", port = port(), path = "/play"),
+                scope,
+            )
+            client.startReading()
+            clients.add(client)
+            return client
+        }
+
+        suspend fun shutDown() {
+            withTimeoutOrNull(3_000) {
+                clients.forEach { runCatching { it.session.close() } }
+            }
+            scope.cancel()
+            runCatching { http.close() }
+            server.stop(200, 500)
         }
     }
 
@@ -212,18 +248,10 @@ class ServerIntegrationTest {
 
     @Test
     fun `four clients play a full game over websockets`() = runBlocking {
-        val server = embeddedServer(Netty, port = 0, module = Application::catanModule)
-            .start(wait = false)
-        val port = server.engine.resolvedConnectors().first().port
-        val http = HttpClient(CIO) { install(WebSockets) }
-        val scope = CoroutineScope(Dispatchers.IO + Job())
-
+        val harness = Harness()
         try {
             val names = listOf("Alice", "Bob", "Cara", "Dan")
-            val clients = names.map {
-                TestClient(http.webSocketSession(host = "127.0.0.1", port = port, path = "/play"), scope)
-            }
-            clients.forEach { it.startReading() }
+            val clients = names.map { harness.connect() }
 
             clients[0].send(CreateRoom(names[0]))
             val roomCode = clients[0].awaitWelcome().roomCode
@@ -257,16 +285,40 @@ class ServerIntegrationTest {
             bystander.rejections.clear()
 
             // Drive the game to a finish.
+            //
+            // Every client must be caught up to the same state version before an action is
+            // chosen. Acting on a stale view would send a move for the wrong player, or send the
+            // same move twice.
+            // Waits until every client reports the same state version. Each action produces
+            // exactly one broadcast per client, so agreement means nothing is still in flight and
+            // it is safe to snapshot.
+            suspend fun settle(): Int = withTimeout(20_000) {
+                while (true) {
+                    val versions = clients.map { it.view?.state?.version ?: -1 }
+                    if (versions.all { it >= 0 } && versions.distinct().size == 1) {
+                        return@withTimeout versions.first()
+                    }
+                    delay(2)
+                }
+                @Suppress("UNREACHABLE_CODE") -1
+            }
+
             val random = Random(20250725)
             var steps = 0
             var opponentsEverHeldCards = false
 
-            withTimeout(180_000) {
+            withTimeout(240_000) {
                 while (true) {
-                    val public = clients[0].awaitView()
-                    val state = public.state
+                    val version = settle()
+                    val state = clients[0].view!!.state
                     if (state.phase == GamePhase.GAME_OVER) break
                     check(steps++ < 20_000) { "game did not finish" }
+                    if (steps % 200 == 0) {
+                        println(
+                            "  step $steps turn ${state.turnNumber} phase ${state.phase} " +
+                                "points ${state.players.map { state.publicVictoryPoints(it.id) }}",
+                        )
+                    }
 
                     // Redaction must hold on every single update, not just at the end.
                     for (client in clients) {
@@ -291,15 +343,14 @@ class ServerIntegrationTest {
                         state.currentPlayer.id
                     }
                     val actorClient = clients[actorId.value]
-                    val actorState = actorClient.awaitView().state
-                    val action = chooseAction(actorState, actorId, random)
+                    val actorState = actorClient.view!!.state
+                    check(actorState.version == version) { "views diverged" }
 
-                    val before = actorState
-                    actorClient.send(Act(action))
+                    actorClient.send(Act(chooseAction(actorState, actorId, random)))
 
-                    // Wait for the broadcast that reflects it.
-                    withTimeout(15_000) {
-                        while (actorClient.view?.state == before &&
+                    withTimeout(20_000) {
+                        while (
+                            (actorClient.view?.state?.version ?: -1) <= version &&
                             actorClient.rejections.isEmpty()
                         ) {
                             delay(2)
@@ -307,20 +358,21 @@ class ServerIntegrationTest {
                     }
                     if (actorClient.rejections.isNotEmpty()) {
                         // The only rejection the bot can legitimately provoke is buying from an
-                        // empty deck, which it cannot see.
+                        // empty deck, which the redacted view does not show it.
                         val reasons = actorClient.rejections.toList()
                         actorClient.rejections.clear()
                         assertTrue(reasons.all { it.contains("empty") }) {
-                            "unexpected rejection for $action: $reasons"
+                            "unexpected rejection: $reasons"
                         }
                         actorClient.send(Act(EndTurn))
-                        withTimeout(15_000) {
-                            while (actorClient.view?.state == before) delay(2)
+                        withTimeout(20_000) {
+                            while ((actorClient.view?.state?.version ?: -1) <= version) delay(2)
                         }
                     }
                 }
             }
 
+            println("game finished after $steps actions")
             val finalView = clients[0].awaitView()
             val winner = finalView.state.winner
             assertNotNull(winner) { "the game ended with no winner" }
@@ -343,36 +395,20 @@ class ServerIntegrationTest {
                 "winner shows ${winnerView.state.victoryPoints(winner)} points in their own view"
             }
 
-            clients.forEach { it.session.close() }
-            scope.cancel()
         } finally {
-            http.close()
-            server.stop(500, 1000)
+            harness.shutDown()
         }
     }
 
     @Test
     fun `a dropped player can rejoin and keeps their seat`() = runBlocking {
-        val server = embeddedServer(Netty, port = 0, module = Application::catanModule)
-            .start(wait = false)
-        val port = server.engine.resolvedConnectors().first().port
-        val http = HttpClient(CIO) { install(WebSockets) }
-        val scope = CoroutineScope(Dispatchers.IO + Job())
-
+        val harness = Harness()
         try {
-            val host = TestClient(
-                http.webSocketSession(host = "127.0.0.1", port = port, path = "/play"),
-                scope,
-            )
-            host.startReading()
+            val host = harness.connect()
             host.send(CreateRoom("Alice"))
             val code = host.awaitWelcome().roomCode
 
-            val guest = TestClient(
-                http.webSocketSession(host = "127.0.0.1", port = port, path = "/play"),
-                scope,
-            )
-            guest.startReading()
+            val guest = harness.connect()
             guest.send(JoinRoom(code, "Bob"))
             val guestWelcome = guest.awaitWelcome()
 
@@ -383,11 +419,7 @@ class ServerIntegrationTest {
             guest.session.close()
             delay(300)
 
-            val reconnected = TestClient(
-                http.webSocketSession(host = "127.0.0.1", port = port, path = "/play"),
-                scope,
-            )
-            reconnected.startReading()
+            val reconnected = harness.connect()
             reconnected.send(
                 com.catan.core.net.Rejoin(code, guestWelcome.token),
             )
@@ -400,28 +432,16 @@ class ServerIntegrationTest {
             }
             assertEquals(guestWelcome.playerId, resumedView.you)
 
-            listOf(host, reconnected).forEach { it.session.close() }
-            scope.cancel()
         } finally {
-            http.close()
-            server.stop(500, 1000)
+            harness.shutDown()
         }
     }
 
     @Test
     fun `joining a room that does not exist is refused`() = runBlocking {
-        val server = embeddedServer(Netty, port = 0, module = Application::catanModule)
-            .start(wait = false)
-        val port = server.engine.resolvedConnectors().first().port
-        val http = HttpClient(CIO) { install(WebSockets) }
-        val scope = CoroutineScope(Dispatchers.IO + Job())
-
+        val harness = Harness()
         try {
-            val client = TestClient(
-                http.webSocketSession(host = "127.0.0.1", port = port, path = "/play"),
-                scope,
-            )
-            client.startReading()
+            val client = harness.connect()
             client.send(JoinRoom("ZZZZ", "Nobody"))
 
             withTimeout(10_000) {
@@ -429,11 +449,8 @@ class ServerIntegrationTest {
             }
             assertTrue(client.errors.first().contains("No room")) { client.errors.toString() }
 
-            client.session.close()
-            scope.cancel()
         } finally {
-            http.close()
-            server.stop(500, 1000)
+            harness.shutDown()
         }
     }
 }

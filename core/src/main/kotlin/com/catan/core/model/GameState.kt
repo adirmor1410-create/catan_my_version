@@ -157,6 +157,13 @@ data class GameState(
     val openTrade: TradeOffer? = null,
     val winner: PlayerId? = null,
     val log: List<String> = emptyList(),
+    /**
+     * Increments once per applied action.
+     *
+     * Broadcasts can arrive out of order or be duplicated, so a client compares this against the
+     * version it already has and ignores anything that is not strictly newer.
+     */
+    val version: Int = 0,
 ) {
     val currentPlayer: PlayerState get() = players[currentPlayerIndex]
 
@@ -207,5 +214,16 @@ data class GameState(
     fun updatePlayer(id: PlayerId, transform: (PlayerState) -> PlayerState): GameState =
         copy(players = players.map { if (it.id == id) transform(it) else it })
 
-    fun withLog(message: String): GameState = copy(log = log + message)
+    /**
+     * Appends a line to the running commentary, keeping only the most recent [LOG_LIMIT].
+     *
+     * The whole state is broadcast to every player after every action, so an unbounded log would
+     * make each message grow with the length of the game - quadratic traffic over a full match.
+     */
+    fun withLog(message: String): GameState =
+        copy(log = (log + message).takeLast(LOG_LIMIT))
+
+    companion object {
+        const val LOG_LIMIT = 60
+    }
 }

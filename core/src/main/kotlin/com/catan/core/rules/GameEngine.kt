@@ -91,7 +91,9 @@ object GameEngine {
 
         return when (result) {
             is ActionResult.Rejected -> result
-            is ActionResult.Success -> ActionResult.Success(checkForWinner(result.state))
+            is ActionResult.Success -> ActionResult.Success(
+                checkForWinner(result.state).copy(version = state.version + 1),
+            )
         }
     }
 
