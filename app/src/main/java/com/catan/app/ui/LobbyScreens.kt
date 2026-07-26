@@ -65,8 +65,9 @@ fun ConnectScreen(
                 ) {
                     Text("Catan", fontSize = 34.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "Enter the address of your game server, then host a table or join one " +
-                            "with its code.",
+                        "Enter your game server: an address on your network like " +
+                            "192.168.1.20, or a public one like wss://my-catan.onrender.com " +
+                            "to play with people elsewhere.",
                         fontSize = 13.sp,
                     )
 

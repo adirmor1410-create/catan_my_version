@@ -42,13 +42,43 @@ On the **connect screen**, enter the server address:
 |---|---|
 | Android emulator, server on the same machine | `10.0.2.2:8080` (the default) |
 | Real phone, server on your computer | your computer's LAN address, e.g. `192.168.1.20:8080` |
-| Hosted server with TLS | `wss://your-host` |
+| Anyone, anywhere | a public address - see below |
 
 One player taps **Host a new game** and reads out the four-letter room code; everyone else enters
 that code and taps **Join**. When at least two players are in, the host starts the game.
 
 The app talks plain `ws://` by default, which is why the manifest allows cleartext traffic. Put the
 server behind TLS and use a `wss://` address for anything beyond your own network.
+
+### 3. Playing with people on a different network
+
+The room code identifies a room *on one server*. Everyone must reach the same server, so a server
+running on a home PC has to be reachable from the internet. Two ways:
+
+**A tunnel** - quickest, nothing to deploy. Leave `:server:run` going and, in another terminal:
+
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+
+It prints a public `https://<something>.trycloudflare.com` address. Everyone types that into the
+app, on any network. Paste it as-is: an address with a scheme keeps its own port (443), so don't
+add `:8080`. The address changes each time you restart the tunnel. `ngrok http 8080` works the
+same way.
+
+**Hosting the server** - for an address that stays put. There is a `Dockerfile` that builds only
+`:core` and `:server`, so no Android SDK is involved:
+
+```bash
+docker build -t catan-server .
+docker run -p 8080:8080 catan-server
+```
+
+It runs as-is on any host that takes a Dockerfile (Render, Railway, Fly.io, or your own VPS).
+The server binds `0.0.0.0` and reads `$PORT`, which is what those platforms set. Players then use
+`wss://your-app.onrender.com`, and `/health` answers `ok` for health checks.
+
+Rooms are held in memory, so restarting or redeploying the server ends any game in progress.
 
 ## Rules
 

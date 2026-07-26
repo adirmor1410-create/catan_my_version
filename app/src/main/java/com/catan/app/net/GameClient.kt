@@ -12,6 +12,7 @@ import com.catan.core.net.LobbyUpdate
 import com.catan.core.net.LobbyView
 import com.catan.core.net.PlayerView
 import com.catan.core.net.Rejoin
+import com.catan.core.net.ServerAddress
 import com.catan.core.net.ServerMessage
 import com.catan.core.net.StartGame
 import com.catan.core.net.Welcome
@@ -106,7 +107,11 @@ class GameClient {
     private suspend fun open(url: String): Boolean {
         closedByUser = false
         _connection.value = Connection.Connecting
-        serverUrl = normalize(url)
+        serverUrl = runCatching { ServerAddress.normalize(url) }.getOrNull()
+        if (serverUrl == null) {
+            _connection.value = Connection.Failed("Enter a server address.")
+            return false
+        }
 
         return try {
             reader?.cancel()
@@ -198,20 +203,4 @@ class GameClient {
             .onFailure { _notice.value = "Could not reach the server." }
     }
 
-    /** Accepts "10.0.0.5", "10.0.0.5:8080" or a full ws:// / wss:// URL. */
-    private fun normalize(input: String): String {
-        val trimmed = input.trim().removeSuffix("/")
-        val withScheme = when {
-            trimmed.startsWith("ws://") || trimmed.startsWith("wss://") -> trimmed
-            trimmed.startsWith("https://") -> "wss://" + trimmed.removePrefix("https://")
-            trimmed.startsWith("http://") -> "ws://" + trimmed.removePrefix("http://")
-            else -> "ws://$trimmed"
-        }
-        return if (withScheme.substringAfter("://").contains('/')) {
-            withScheme
-        } else {
-            val hasPort = withScheme.substringAfter("://").contains(':')
-            if (hasPort) "$withScheme/play" else "$withScheme:8080/play"
-        }
-    }
 }
