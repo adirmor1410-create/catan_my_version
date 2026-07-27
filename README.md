@@ -14,41 +14,24 @@ Every rule lives in `core`, and both the server and the app use it. The server d
 actually happens; the app uses the same code only to grey out moves it knows are illegal, so the
 two can never disagree about the rules.
 
-## Running it
+## Firebase Cloud Multiplayer
 
-### 1. Start the server
+The game uses **Firebase Realtime Database** for cloud multiplayer — no local server or port forwarding required!
 
-```bash
-./gradlew :server:run
-```
+### 1. Firebase Setup
 
-It listens on port 8080. Set `PORT` to change that. To run it somewhere other than your own
-machine, build a self-contained distribution:
+1. Create a Firebase project in the [Firebase Console](https://console.firebase.google.com/).
+2. Add an Android app with package name `com.catan.app`.
+3. Download `google-services.json` and place it in the `app/` directory of this project.
+4. Enable **Firebase Realtime Database** in test mode or with read/write rules enabled for `/rooms`.
 
-```bash
-./gradlew :server:installDist
-./server/build/install/server/bin/server
-```
+### 2. Run the App
 
-The server keeps games in memory, so restarting it ends any game in progress.
+1. Open the project in Android Studio and run the `app` configuration on your device or emulator.
+2. Tap **Host a new game** to generate a 4-character Room Code.
+3. Share the Room Code with up to 3 other players. They enter the Room Code and tap **Join**.
+4. Tap **Start Game** once players have joined!
 
-### 2. Run the app
-
-Open the project in Android Studio and run the `app` configuration.
-
-On the **connect screen**, enter the server address:
-
-| Where the app runs | What to enter |
-|---|---|
-| Android emulator, server on the same machine | `10.0.2.2:8080` (the default) |
-| Real phone, server on your computer | your computer's LAN address, e.g. `192.168.1.20:8080` |
-| Hosted server with TLS | `wss://your-host` |
-
-One player taps **Host a new game** and reads out the four-letter room code; everyone else enters
-that code and taps **Join**. When at least two players are in, the host starts the game.
-
-The app talks plain `ws://` by default, which is why the manifest allows cleartext traffic. Put the
-server behind TLS and use a `wss://` address for anything beyond your own network.
 
 ## Rules
 

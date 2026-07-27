@@ -10,14 +10,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.catan.app.net.GameClient
+import com.catan.app.net.FirebaseGameClient
 import com.catan.app.ui.ConnectScreen
 import com.catan.app.ui.GameScreen
 import com.catan.app.ui.LobbyScreen
 
 /** Holds the connection across configuration changes so a rotation does not drop the game. */
 class CatanViewModel : ViewModel() {
-    val client = GameClient()
+    val client = FirebaseGameClient()
 
     override fun onCleared() {
         super.onCleared()
@@ -64,8 +64,9 @@ fun CatanApp(model: CatanViewModel = viewModel()) {
 
         else -> ConnectScreen(
             connection = connection,
-            onHost = { server, name -> client.host(server, name) },
-            onJoin = { server, code, name -> client.join(server, code, name) },
+            onHost = { name -> client.host(name) },
+            onJoin = { code, name -> client.join(code, name) },
         )
     }
 }
+

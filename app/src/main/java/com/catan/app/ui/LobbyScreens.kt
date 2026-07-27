@@ -49,10 +49,9 @@ fun colorOf(color: PlayerColor): Color = when (color) {
 @Composable
 fun ConnectScreen(
     connection: Connection,
-    onHost: (server: String, name: String) -> Unit,
-    onJoin: (server: String, code: String, name: String) -> Unit,
+    onHost: (name: String) -> Unit,
+    onJoin: (code: String, name: String) -> Unit,
 ) {
-    var server by remember { mutableStateOf("10.0.2.2:8080") }
     var name by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
 
@@ -63,20 +62,12 @@ fun ConnectScreen(
                     Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("Catan", fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                    Text("Catan Online", fontSize = 34.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "Enter the address of your game server, then host a table or join one " +
-                            "with its code.",
+                        "Host a new game room or enter a 4-character Room Code to join an existing game.",
                         fontSize = 13.sp,
                     )
 
-                    OutlinedTextField(
-                        value = server,
-                        onValueChange = { server = it },
-                        label = { Text("Server") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it.take(16) },
@@ -86,8 +77,8 @@ fun ConnectScreen(
                     )
 
                     Button(
-                        onClick = { onHost(server, name.ifBlank { "Player" }) },
-                        enabled = server.isNotBlank() && connection !is Connection.Connecting,
+                        onClick = { onHost(name.ifBlank { "Player" }) },
+                        enabled = connection !is Connection.Connecting,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Host a new game") }
 
@@ -105,7 +96,7 @@ fun ConnectScreen(
                             modifier = Modifier.weight(1f),
                         )
                         OutlinedButton(
-                            onClick = { onJoin(server, code, name.ifBlank { "Player" }) },
+                            onClick = { onJoin(code, name.ifBlank { "Player" }) },
                             enabled = code.length == 4 && connection !is Connection.Connecting,
                         ) { Text("Join") }
                     }
@@ -132,6 +123,7 @@ fun ConnectScreen(
         }
     }
 }
+
 
 @Composable
 fun LobbyScreen(lobby: LobbyView, onStart: () -> Unit, onLeave: () -> Unit) {
