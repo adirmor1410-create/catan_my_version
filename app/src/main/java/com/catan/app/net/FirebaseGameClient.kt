@@ -60,7 +60,7 @@ class FirebaseGameClient {
 
         val roomCode = generateRoomCode()
         currentRoomCode = roomCode
-        val pid = PlayerId("p1")
+        val pid = PlayerId(1)
         myPlayerId = pid
 
         val hostSeat = mapOf(
@@ -70,6 +70,7 @@ class FirebaseGameClient {
             "isHost" to true,
             "connected" to true
         )
+
 
         val roomData = mapOf(
             "roomCode" to roomCode,
@@ -127,7 +128,7 @@ class FirebaseGameClient {
             }.toSet()
 
             val color = availableColors.firstOrNull() ?: PlayerColor.BLUE
-            val pid = PlayerId("p${currentSeatsCount + 1}")
+            val pid = PlayerId(currentSeatsCount + 1)
             myPlayerId = pid
 
             val newSeat = mapOf(
@@ -137,6 +138,7 @@ class FirebaseGameClient {
                 "isHost" to false,
                 "connected" to true
             )
+
 
             ref.child("seats").child(currentSeatsCount.toString()).setValue(newSeat).addOnCompleteListener { task ->
                 if (task.isSuccessful) {
@@ -158,12 +160,16 @@ class FirebaseGameClient {
 
         ref.get().addOnSuccessListener { snapshot ->
             val seatsSnap = snapshot.child("seats")
-            val playerIds = seatsSnap.children.mapNotNull { it.child("playerId").getValue(String::class.java)?.let { id -> PlayerId(id) } }
+            val playerIds = seatsSnap.children.mapNotNull {
+                (it.child("playerId").getValue(Long::class.java)?.toInt()
+                    ?: it.child("playerId").getValue(Int::class.java))?.let { id -> PlayerId(id) }
+            }
 
             if (playerIds.size < 2) {
                 _notice.value = "Need at least 2 players to start."
                 return@addOnSuccessListener
             }
+
 
             val initialState = GameEngine.initialState(playerIds = playerIds, seed = System.currentTimeMillis())
             val json = CatanJson.encodeToString(initialState)
@@ -220,8 +226,12 @@ class FirebaseGameClient {
                 val connectedMap = mutableMapOf<PlayerId, Boolean>()
 
                 for (seatSnap in snapshot.child("seats").children) {
-                    val spid = seatSnap.child("playerId").getValue(String::class.java)?.let { PlayerId(it) } ?: continue
+                    val spidInt = seatSnap.child("playerId").getValue(Long::class.java)?.toInt()
+                        ?: seatSnap.child("playerId").getValue(Int::class.java)
+                        ?: continue
+                    val spid = PlayerId(spidInt)
                     val name = seatSnap.child("name").getValue(String::class.java) ?: "Player"
+
                     val colorStr = seatSnap.child("color").getValue(String::class.java) ?: "RED"
                     val color = runCatching { PlayerColor.valueOf(colorStr) }.getOrDefault(PlayerColor.RED)
                     val isHost = seatSnap.child("isHost").getValue(Boolean::class.java) ?: false
