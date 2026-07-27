@@ -120,5 +120,5 @@ object Art {
         DevCardType.YEAR_OF_PLENTY -> R.drawable.dev_year_of_plenty
     }
 
-    const val ROBBER = R.drawable.robber
+    val ROBBER = R.drawable.robber
 }
