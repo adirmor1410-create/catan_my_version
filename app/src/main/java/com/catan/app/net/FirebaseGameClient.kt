@@ -8,8 +8,10 @@ import com.catan.core.net.LobbySeat
 import com.catan.core.net.LobbyView
 import com.catan.core.net.PlayerView
 import com.catan.core.net.redactFor
+import com.catan.core.rules.ActionResult
 import com.catan.core.rules.GameAction
 import com.catan.core.rules.GameEngine
+
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
@@ -160,18 +162,19 @@ class FirebaseGameClient {
 
         ref.get().addOnSuccessListener { snapshot ->
             val seatsSnap = snapshot.child("seats")
-            val playerIds = seatsSnap.children.mapNotNull {
-                (it.child("playerId").getValue(Long::class.java)?.toInt()
-                    ?: it.child("playerId").getValue(Int::class.java))?.let { id -> PlayerId(id) }
+            val seats = seatsSnap.children.mapNotNull {
+                val name = it.child("name").getValue(String::class.java) ?: "Player"
+                val colorStr = it.child("color").getValue(String::class.java) ?: "RED"
+                val color = runCatching { PlayerColor.valueOf(colorStr) }.getOrDefault(PlayerColor.RED)
+                GameEngine.Seat(name, color)
             }
 
-            if (playerIds.size < 2) {
+            if (seats.size < 2) {
                 _notice.value = "Need at least 2 players to start."
                 return@addOnSuccessListener
             }
 
-
-            val initialState = GameEngine.initialState(playerIds = playerIds, seed = System.currentTimeMillis())
+            val initialState = GameEngine.newGame(seats)
             val json = CatanJson.encodeToString(initialState)
 
             val updates = mapOf(
@@ -188,14 +191,15 @@ class FirebaseGameClient {
         val pid = myPlayerId ?: return@launch
         val state = currentFullState ?: return@launch
 
-        val outcome = GameEngine.applyAction(state, pid, action)
-        if (outcome is GameEngine.Outcome.Success) {
-            val json = CatanJson.encodeToString(outcome.newState)
+        val result = GameEngine.apply(state, pid, action)
+        if (result is ActionResult.Success) {
+            val json = CatanJson.encodeToString(result.state)
             db.getReference("rooms").child(code).child("gameStateJson").setValue(json)
-        } else if (outcome is GameEngine.Outcome.Rejected) {
-            _notice.value = outcome.reason
+        } else if (result is ActionResult.Rejected) {
+            _notice.value = result.reason
         }
     }
+
 
     fun leave() = scope.launch {
         detachListener()
