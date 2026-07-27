@@ -224,6 +224,9 @@ class FirebaseGameClient {
                 }
 
                 val status = snapshot.child("status").getValue(String::class.java) ?: "LOBBY"
+                val hostIdInt = snapshot.child("hostId").getValue(Long::class.java)?.toInt()
+                    ?: snapshot.child("hostId").getValue(Int::class.java)
+                    ?: 1
                 val pid = myPlayerId ?: return
 
                 val seatsList = mutableListOf<LobbySeat>()
@@ -238,7 +241,7 @@ class FirebaseGameClient {
 
                     val colorStr = seatSnap.child("color").getValue(String::class.java) ?: "RED"
                     val color = runCatching { PlayerColor.valueOf(colorStr) }.getOrDefault(PlayerColor.RED)
-                    val isHost = seatSnap.child("isHost").getValue(Boolean::class.java) ?: false
+                    val isHost = (spidInt == hostIdInt)
                     val connected = seatSnap.child("connected").getValue(Boolean::class.java) ?: true
 
                     seatsList.add(LobbySeat(spid, name, color, isHost, connected))
@@ -246,7 +249,8 @@ class FirebaseGameClient {
                 }
 
                 if (status == "LOBBY") {
-                    val canStart = seatsList.find { it.playerId == pid }?.isHost == true && seatsList.size >= 2
+                    val isMeHost = (pid.value == hostIdInt)
+                    val canStart = isMeHost && seatsList.size in 2..4
                     _lobby.value = LobbyView(
                         roomCode = roomCode,
                         seats = seatsList,
@@ -254,7 +258,8 @@ class FirebaseGameClient {
                         you = pid
                     )
                     _view.value = null
-                } else if (status == "PLAYING") {
+                }
+ else if (status == "PLAYING") {
                     val json = snapshot.child("gameStateJson").getValue(String::class.java)
                     if (json != null) {
                         runCatching {
